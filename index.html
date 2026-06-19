@@ -1,0 +1,196 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Voxel3D Studio - Image to Voxel Model</title>
+    <link rel="stylesheet" href="styles.css" />
+    <script async src="https://unpkg.com/es-module-shims@1.10.0/dist/es-module-shims.js"></script>
+    <script type="importmap">
+      {
+        "imports": {
+          "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+          "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+        }
+      }
+    </script>
+  <script src="https://sites.super.myninja.ai/_assets/ninja-daytona-script.js"></script>
+</head>
+  <body>
+    <main class="app-shell">
+      <section class="hero">
+        <article class="intro-card">
+          <div>
+            <span class="kicker">Voxel3D Creator</span>
+            <h1>Image to rigged voxel model studio.</h1>
+            <p class="lead">
+              Upload an image, convert visible pixels into a 3D voxel sculpture, preview it in the corner viewport, add an automatic bone guide, play lightweight animations, and download the scene as GLB, GLTF, OBJ, PLY, or JSON.
+            </p>
+            <div class="feature-pills" aria-label="Main features">
+              <span class="pill">Image → Voxel3D</span>
+              <span class="pill">Move / orbit preview</span>
+              <span class="pill">Auto bone overlay</span>
+              <span class="pill">Idle, bounce, spin animations</span>
+              <span class="pill">GLB / GLTF / OBJ export</span>
+            </div>
+          </div>
+          <p class="lead">
+            Tip: transparent PNGs work best. Drag the preview to rotate, scroll to zoom, and use the move controls to reposition the model.
+          </p>
+        </article>
+
+        <section class="viewport-card" aria-label="3D corner preview">
+          <div class="viewport-header">
+            <div class="viewport-title">3D Corner Preview</div>
+            <div class="viewport-actions">
+              <button id="resetCameraBtn" class="icon-button" type="button" title="Reset camera">↺</button>
+              <button id="centerModelBtn" class="icon-button" type="button" title="Center model">⌖</button>
+              <button id="fullscreenBtn" class="icon-button" type="button" title="Fullscreen preview">⛶</button>
+            </div>
+          </div>
+          <canvas id="viewport"></canvas>
+          <div class="corner-badge">Live WebGL viewport with orbit controls, grid, lights, generated voxels, bone guide, and animation playback.</div>
+        </section>
+      </section>
+
+      <section class="controls-grid">
+        <article class="panel wide">
+          <h2>1. Source Image</h2>
+          <p>Choose an image. Bright and opaque pixels become voxels; transparent pixels are skipped.</p>
+          <div class="preview-image-wrap">
+            <img id="sourcePreview" alt="Uploaded source preview" />
+            <div id="dropCopy" class="drop-copy">Upload a PNG, JPG, WEBP, or GIF image to begin generating a voxel model.</div>
+          </div>
+          <div class="button-row">
+            <input id="imageInput" type="file" accept="image/png,image/jpeg,image/webp,image/gif" />
+            <button id="sampleBtn" class="secondary-button" type="button">Load Sample Pixel Character</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>2. Voxel Settings</h2>
+          <p>Control resolution, voxel size, depth, alpha cutoff, and color style before generation.</p>
+          <div class="control-row">
+            <label for="resolutionRange">Resolution: <span id="resolutionValue">42</span> px wide</label>
+            <input id="resolutionRange" type="range" min="12" max="96" value="42" />
+          </div>
+          <div class="inline-fields">
+            <div class="control-row">
+              <label for="voxelSizeRange">Voxel Size: <span id="voxelSizeValue">0.18</span></label>
+              <input id="voxelSizeRange" type="range" min="0.08" max="0.35" step="0.01" value="0.18" />
+            </div>
+            <div class="control-row">
+              <label for="depthRange">Depth: <span id="depthValue">2</span></label>
+              <input id="depthRange" type="range" min="1" max="8" value="2" />
+            </div>
+          </div>
+          <div class="inline-fields">
+            <div class="control-row">
+              <label for="alphaRange">Alpha Cutoff: <span id="alphaValue">28</span></label>
+              <input id="alphaRange" type="range" min="1" max="254" value="28" />
+            </div>
+            <div class="control-row">
+              <label for="paletteSelect">Color Mode</label>
+              <select id="paletteSelect">
+                <option value="source">Source colors</option>
+                <option value="neon">Neon remix</option>
+                <option value="clay">Clay material</option>
+                <option value="crystal">Crystal tint</option>
+              </select>
+            </div>
+          </div>
+          <button id="generateBtn" class="action-button" type="button">Generate Voxel3D Model</button>
+        </article>
+
+        <article class="panel">
+          <h2>3. Move Model</h2>
+          <p>Move the generated voxel model directly in the preview scene.</p>
+          <div class="control-row">
+            <label for="moveX">Move X: <span id="moveXValue">0.0</span></label>
+            <input id="moveX" type="range" min="-5" max="5" step="0.1" value="0" />
+          </div>
+          <div class="control-row">
+            <label for="moveY">Move Y: <span id="moveYValue">0.0</span></label>
+            <input id="moveY" type="range" min="-5" max="5" step="0.1" value="0" />
+          </div>
+          <div class="control-row">
+            <label for="moveZ">Move Z: <span id="moveZValue">0.0</span></label>
+            <input id="moveZ" type="range" min="-5" max="5" step="0.1" value="0" />
+          </div>
+          <div class="button-row">
+            <button id="resetMoveBtn" class="secondary-button" type="button">Reset Move</button>
+            <button id="fitViewBtn" class="secondary-button" type="button">Fit View</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>4. Auto Bone</h2>
+          <p>Create a simple procedural skeleton guide for character-style voxel models.</p>
+          <div class="control-row">
+            <label for="rigPreset">Bone Preset</label>
+            <select id="rigPreset">
+              <option value="humanoid">Humanoid</option>
+              <option value="creature">Creature</option>
+              <option value="prop">Prop / object</option>
+            </select>
+          </div>
+          <div class="button-row">
+            <button id="autoBoneBtn" class="action-button" type="button">Auto Bone</button>
+            <button id="toggleBonesBtn" class="secondary-button" type="button">Toggle Bones</button>
+          </div>
+        </article>
+
+        <article class="panel">
+          <h2>5. Animations</h2>
+          <p>Preview quick procedural animations. These export as the current transformed scene pose.</p>
+          <div class="control-row">
+            <label for="animationSelect">Animation</label>
+            <select id="animationSelect">
+              <option value="idle">Idle breathing</option>
+              <option value="spin">Spin showcase</option>
+              <option value="bounce">Bounce</option>
+              <option value="wave">Bone wave</option>
+              <option value="none">None</option>
+            </select>
+          </div>
+          <div class="control-row">
+            <label for="speedRange">Speed: <span id="speedValue">1.0</span>x</label>
+            <input id="speedRange" type="range" min="0.1" max="3" step="0.1" value="1" />
+          </div>
+          <div class="button-row">
+            <button id="playBtn" class="action-button" type="button">Play</button>
+            <button id="pauseBtn" class="secondary-button" type="button">Pause</button>
+          </div>
+        </article>
+
+        <article class="panel wide">
+          <h2>Scene Stats</h2>
+          <p>Live summary of the generated Voxel3D scene.</p>
+          <div class="stats-grid">
+            <div class="stat"><strong id="voxelCount">0</strong><span>Voxels</span></div>
+            <div class="stat"><strong id="boneCount">0</strong><span>Bones</span></div>
+            <div class="stat"><strong id="meshCount">0</strong><span>Meshes</span></div>
+            <div class="stat"><strong id="fileSize">—</strong><span>Last Export</span></div>
+          </div>
+        </article>
+
+        <article class="panel full">
+          <h2>6. Download Voxel3D</h2>
+          <p>Export the generated model. GLB and GLTF preserve scene materials; OBJ is widely compatible; PLY and JSON are included for voxel workflows.</p>
+          <div class="export-grid">
+            <button id="exportGlbBtn" class="action-button" type="button">Download GLB</button>
+            <button id="exportGltfBtn" class="secondary-button" type="button">Download GLTF</button>
+            <button id="exportObjBtn" class="secondary-button" type="button">Download OBJ</button>
+            <button id="exportPlyBtn" class="secondary-button" type="button">Download PLY</button>
+            <button id="exportJsonBtn" class="secondary-button" type="button">Download Voxel JSON</button>
+          </div>
+        </article>
+      </section>
+
+      <section id="log" class="status-console" aria-live="polite">Ready. Upload an image or load the sample pixel character.</section>
+      <p class="footer-note">Prototype runs fully in your browser using Three.js. Generated downloads are created locally without a backend.</p>
+    </main>
+
+    <script type="module" src="app.js"></script>
+  </body>
+</html>
