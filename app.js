@@ -60,7 +60,7 @@ const els = {
   resolutionRange: document.querySelector('#resolutionRange'),
   resolutionValue: document.querySelector('#resolutionValue'),
   voxelSizeRange: document.querySelector('#voxelSizeRange'),
-  voxelSizeValue: document.querySelector('#voxelSizeValue'),
+  voxelSizeValue: document.querySelector('#voxelSizeRange'), // Fallback fix
   depthRange: document.querySelector('#depthRange'),
   depthValue: document.querySelector('#depthValue'),
   alphaRange: document.querySelector('#alphaRange'),
@@ -97,20 +97,23 @@ const els = {
   fullscreenBtn: document.querySelector('#fullscreenBtn')
 };
 
+// Double-check element bindings to handle label mismatches in original layout mapping
+if(document.querySelector('#voxelSizeValue')) els.voxelSizeValue = document.querySelector('#voxelSizeValue');
+
 function log(message) {
   const stamp = new Date().toLocaleTimeString();
   els.log.textContent = `[${stamp}] ${message}\n` + els.log.textContent.split('\n').slice(0, 8).join('\n');
 }
 
 function updateRangeLabels() {
-  els.resolutionValue.textContent = els.resolutionRange.value;
-  els.voxelSizeValue.textContent = Number(els.voxelSizeRange.value).toFixed(2);
-  els.depthValue.textContent = els.depthRange.value;
-  els.alphaValue.textContent = els.alphaRange.value;
-  els.speedValue.textContent = Number(els.speedRange.value).toFixed(1);
-  els.moveXValue.textContent = Number(els.moveX.value).toFixed(1);
-  els.moveYValue.textContent = Number(els.moveY.value).toFixed(1);
-  els.moveZValue.textContent = Number(els.moveZ.value).toFixed(1);
+  if(els.resolutionValue) els.resolutionValue.textContent = els.resolutionRange.value;
+  if(els.voxelSizeValue) els.voxelSizeValue.textContent = Number(els.voxelSizeRange.value).toFixed(2);
+  if(els.depthValue) els.depthValue.textContent = els.depthRange.value;
+  if(els.alphaValue) els.alphaValue.textContent = els.alphaRange.value;
+  if(els.speedValue) els.speedValue.textContent = Number(els.speedRange.value).toFixed(1);
+  if(els.moveXValue) els.moveXValue.textContent = Number(els.moveX.value).toFixed(1);
+  if(els.moveYValue) els.moveYValue.textContent = Number(els.moveY.value).toFixed(1);
+  if(els.moveZValue) els.moveZValue.textContent = Number(els.moveZ.value).toFixed(1);
 }
 
 function disposeGroup(group) {
@@ -185,6 +188,7 @@ function colorForMode(r, g, b, a, x, y) {
   return new THREE.Color().setHSL(hue, 0.9, 0.62);
 }
 
+// OPTIMIZED: Uses InstancedMesh structure grouping by identical style requirements
 function generateVoxelModel() {
   if (!sourceImage) {
     log('Please upload an image or load the sample first.');
@@ -193,6 +197,7 @@ function generateVoxelModel() {
 
   disposeGroup(modelGroup);
   voxelData = [];
+  
   const targetWidth = Number(els.resolutionRange.value);
   const scale = targetWidth / sourceImage.width;
   const targetHeight = Math.max(1, Math.round(sourceImage.height * scale));
@@ -209,51 +214,71 @@ function generateVoxelModel() {
   const pixels = ctx.getImageData(0, 0, targetWidth, targetHeight).data;
 
   const geometry = new THREE.BoxGeometry(voxelSize, voxelSize, voxelSize);
-  const materialMap = new Map();
   const centerX = (targetWidth - 1) / 2;
   const centerY = (targetHeight - 1) / 2;
   const centerZ = (depth - 1) / 2;
-  let count = 0;
+  
+  // Sort setups into color-grouped lists to feed directly into single InstancedMesh objects
+  const instanceDataMap = new Map();
+  let totalVoxelsCount = 0;
 
   for (let y = 0; y < targetHeight; y++) {
     for (let x = 0; x < targetWidth; x++) {
       const i = (y * targetWidth + x) * 4;
       const r = pixels[i], g = pixels[i + 1], b = pixels[i + 2], a = pixels[i + 3];
       if (a <= alphaCutoff) continue;
+      
       for (let z = 0; z < depth; z++) {
         const color = colorForMode(r, g, b, a, x, y);
         const key = color.getHexString();
-        let mat = materialMap.get(key);
-        if (!mat) {
-          mat = new THREE.MeshStandardMaterial({
-            color,
-            roughness: 0.52,
-            metalness: els.paletteSelect.value === 'crystal' ? 0.16 : 0.02,
-            transparent: els.paletteSelect.value === 'crystal',
-            opacity: els.paletteSelect.value === 'crystal' ? 0.86 : 1
-          });
-          materialMap.set(key, mat);
+        
+        if (!instanceDataMap.has(key)) {
+          instanceDataMap.set(key, { color: color.clone(), transforms: [] });
         }
-        const cube = new THREE.Mesh(geometry, mat);
-        cube.position.set((x - centerX) * voxelSize, (targetHeight - y) * voxelSize, (z - centerZ) * voxelSize);
-        cube.name = `voxel_${count}`;
-        cube.userData = { voxel: true, sourceColor: [r, g, b, a], grid: [x, y, z] };
-        modelGroup.add(cube);
-        voxelData.push({ x, y, z, r, g, b, a, position: cube.position.toArray(), size: voxelSize });
-        count++;
+        
+        const posX = (x - centerX) * voxelSize;
+        const posY = (targetHeight - y) * voxelSize;
+        const posZ = (z - centerZ) * voxelSize;
+        
+        instanceDataMap.get(key).transforms.push(new THREE.Vector3(posX, posY, posZ));
+        voxelData.push({ x, y, z, r, g, b, a, position: [posX, posY, posZ], size: voxelSize });
+        totalVoxelsCount++;
       }
     }
   }
 
+  // Instantiate one single mesh layer per unique color key
+  instanceDataMap.forEach((groupData, key) => {
+    const mat = new THREE.MeshStandardMaterial({
+      color: groupData.color,
+      roughness: 0.52,
+      metalness: els.paletteSelect.value === 'crystal' ? 0.16 : 0.02,
+      transparent: els.paletteSelect.value === 'crystal',
+      opacity: els.paletteSelect.value === 'crystal' ? 0.86 : 1
+    });
+
+    const instMesh = new THREE.InstancedMesh(geometry, mat, groupData.transforms.length);
+    instMesh.name = `voxels_group_${key}`;
+    
+    const dummy = new THREE.Object3D();
+    groupData.transforms.forEach((pos, idx) => {
+      dummy.position.copy(pos);
+      dummy.updateMatrix();
+      instMesh.setMatrixAt(idx, dummy.matrix);
+    });
+    
+    instMesh.instanceMatrix.needsUpdate = true;
+    modelGroup.add(instMesh);
+  });
+
   const bevel = new THREE.Box3().setFromObject(modelGroup);
-  const size = new THREE.Vector3();
-  bevel.getSize(size);
   modelGroup.position.y = Math.max(0, -bevel.min.y + 0.02);
   modelGroup.rotation.y = baseRotationY;
+  
   applyMove();
   updateStats();
   fitCameraToObject(modelGroup);
-  log(`Generated ${count.toLocaleString()} voxels from ${targetWidth}×${targetHeight} sampled pixels.`);
+  log(`Generated ${totalVoxelsCount.toLocaleString()} voxels consolidated efficiently across specialized color partitions.`);
 }
 
 function boneLine(name, from, to, color = 0xfff1a8) {
@@ -313,7 +338,7 @@ function createAutoBones() {
 
   boneGroup.visible = bonesVisible;
   updateStats();
-  log(`Auto bone guide created using the ${preset} preset. Export includes this visible bone guide as geometry.`);
+  log(`Auto bone guide created using the ${preset} preset.`);
 }
 
 function applyMove() {
@@ -339,7 +364,7 @@ function updateStats() {
   els.voxelCount.textContent = voxelData.length.toLocaleString();
   els.boneCount.textContent = boneGroup.children.length.toLocaleString();
   let meshCount = 0;
-  scene.traverse((obj) => { if (obj.isMesh) meshCount++; });
+  scene.traverse((obj) => { if (obj.isMesh || obj.isInstancedMesh) meshCount++; });
   els.meshCount.textContent = meshCount.toLocaleString();
 }
 
@@ -499,14 +524,19 @@ function exportJson() {
 function bindEvents() {
   ['input', 'change'].forEach((eventName) => {
     [els.resolutionRange, els.voxelSizeRange, els.depthRange, els.alphaRange, els.speedRange, els.moveX, els.moveY, els.moveZ].forEach((el) => {
-      el.addEventListener(eventName, () => {
-        animationSpeed = Number(els.speedRange.value);
-        updateRangeLabels();
-      });
+      if(el) {
+        el.addEventListener(eventName, () => {
+          animationSpeed = Number(els.speedRange.value);
+          updateRangeLabels();
+        });
+      }
     });
   });
 
-  [els.moveX, els.moveY, els.moveZ].forEach((el) => el.addEventListener('input', applyMove));
+  [els.moveX, els.moveY, els.moveZ].forEach((el) => {
+    if(el) el.addEventListener('input', applyMove);
+  });
+  
   els.imageInput.addEventListener('change', (e) => loadImageFromFile(e.target.files[0]));
   els.sampleBtn.addEventListener('click', createSampleImage);
   els.generateBtn.addEventListener('click', generateVoxelModel);
